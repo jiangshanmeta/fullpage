@@ -1,82 +1,289 @@
+if (!String.prototype.str_supplant) {
+    String.prototype.str_supplant = function (o) {
+        return this.replace(/{([^{}]*)}/g,
+            function (a, b) {
+                var r = o[b];
+                return typeof r === 'string' || typeof r === 'number' ? r : a;
+            }
+        );
+    };
+}
+if (!String.prototype.trim) {
+    String.prototype.trim = function () {
+        return this.replace(/^\s*(\S*(?:\s+\S+)*)\s*$/, "$1");
+    };
+}
+//http://phpjs.org/functions/in_array/
+function in_array(needle, haystack, argStrict) {
+
+  var key = '',
+    strict = !! argStrict;
+  if (strict) {
+    for (key in haystack) {
+      if (haystack[key] === needle) {
+        return true;
+      }
+    }
+  } else {
+    for (key in haystack) {
+      if (haystack[key] == needle) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 (function($){
-	var Fullpage = function(id,options){
-		var self = this;
-		this.container = $("#" + id);
-		this.container.addClass("sectionWrap");
-		//todo 导航条
-		//todo 浏览器兼容性
-		var def_opt = {
-			scrollingSpeed:800,   //滚动速度
-			navigation:false,	  //是否有导航
-			navigationPosition:"right",	//导航的位置
+	$.fn.fullpage = function(opts){
+		var defaults = {
+			speed:800,   //滚动速度
+			navigation:true,	  //是否有导航
+			navpos:"right",	//导航的位置
 		//	navigationTooltips:["section1"],//导航的内容
-			continuousVertical:false		//是否在垂直方向上连续
+			continuousVertical:false,		//是否在垂直方向上连续
+			keyboard : true,				//是否支持键盘上下键切换
+			mobile : true,					//是否支持移动端的touch事件 //如果设定为false，则在手机上无法正常使用
+			method : "swing",				//jQuery动画切换效果，然而默认的只有linear 和swing
+			horizontal : false		
 		}
-		this.opt = $.extend({},def_opt,options);
+		//手机事件的封装
+		var opts = $.extend({},defaults,opts || {});
+		return this.each(function(){
+			var selector = $(this);
+			var dataset = {};
 
-		this.size = $("#" + id + " .section").size();
-		this.index = 0;
-		this.moving = false;
-		this.height = $("body").height();
-		$(document).on("mousewheel DOMMouseScroll",function(event){
-			if(self.moving){return;}
-			self.direction = event.originalEvent.wheelDelta? -event.originalEvent.wheelDelta : event.originalEvent.detail;
-			console.log(self.direction)
-			//direction>0表示向下滚动
-			if(self.direction>0){
-				console.log(self.index+1);
-				self.goto(self.index + 1);
-				
-			}else{
-				console.log(self.index-1);
-				self.goto(self.index - 1);
-				
+			if(selector.data("speed")){
+				dataset.speed = selector.data("speed");
 			}
-		})
+			if(selector.data("navpos")){
+				dataset.navpos = selector.data("navpos");
+			}
+			if(selector.data("method")){
+				dataset.method = selector.data("method");
+			}
 
-
-
-
-
-	}
-	Fullpage.prototype={
-		goto:function(num){
-
-			if(num<0){
-				if(this.opt.continuousVertical){
-					//this.wrap.
-					console.log("a");
-					this.moveTo(this.size-1);
+			var opt = $.extend({},opts,dataset);
+			var size = selector.find(".section").size();
+			var pageH = $("body").height();
+			var pageW = $("body").width();
+			var index = 0;
+			var direction ;
+			var touchstartY;
+			var touchendY;
+			var navigationWrap;
+			var moving = false;
+			var navigationTooltipWrap;
+			//导航条有关设置
+			var setNavbar = function(){
+			    navigationWrap = $("<div class='navigationWrap '></div>");
+			    var navClass = "";
+				switch(opt.navpos){
+					case "right":
+						navClass = "right-nav vertical-nav";
+						break;
+					case "left":
+						navClass = "left-nav vertical-nav";
+						break;
+					case "bottom":
+						navClass = "bottom-nav horizontal-nav";	
+						break;
+					default:
+						navClass = "right-nav vertical-nav";										
 				}
-				return;
-			}
-			if(num<this.size ){
-				this.moveTo(num);
-				return;
-			}
-			if(num==this.size){
-				if(this.opt.continuousVertical){
-					this.moveTo(0);
+				navigationWrap.addClass(navClass);
+				var navHTML = "";
+				var template = "<div class='nav {isActive}' data-index='{i}'></div>";
+				for(var i =0;i<size;i++){
+					navHTML += template.str_supplant({isActive:(i==0)?"active":"",i:i});
 				}
-			}
-		},
-		moveTo:function(num){
+				navigationWrap.html(navHTML);
+				$("body").append(navigationWrap);
+				navigationWrap.delegate(".nav","click",function(){
+					var index = $(this).data("index");
+					goto(index);
+				});	
+				//导航条tooltip设置
+				if($.type(opt.navigationTooltips).toLowerCase() == "array"){
+					navigationTooltipWrap = $("<div class='navigationTooltipWrap translataY50'></div>");
+					if(opt.navpos =="right" || opt.navpos =="left"){
+						navigationTooltipWrap.addClass("translataY50");
+					}else{
+						navigationTooltipWrap.addClass("translataX50");
+					}
+					$('body').append(navigationTooltipWrap);
 
-			var self = this;
-			this.moving = true;
-			if(self.opt.onLeave){
-				self.opt.onLeave(this.index)
-			}
-			this.container.animate({top:-num*self.height},self.opt.scrollingSpeed,function(){
-				self.moving = false;
-				self.index = num;
-				if(self.opt.afterLoad){
-					self.opt.afterLoad(self.index);
+					navigationWrap.delegate(".nav","mouseover mouseenter",function(event){
+						var index = $(this).data("index");
+						var y = $(this).offset().top;
+						var x = $(this).offset().left;
+						var w = $(this).width();
+						//计算求得导航点中心位置
+						var centerX = x+w/2;
+						var centerY = y+w/2;
+						var text = opt.navigationTooltips[index];
+						navigationTooltipWrap.text(text);
+		
+						switch(opt.navpos){
+							case "right":
+								navigationTooltipWrap.css({right:(pageW-centerX+15),top:(centerY)})
+								break;
+							case "left":
+								navigationTooltipWrap.css({left:(centerX+15),top:(centerY)})
+								break;
+							case "bottom":
+								navigationTooltipWrap.css({bottom:(pageH-centerY+15),left:(centerX)})
+								break;
+							default:
+								navigationTooltipWrap.css({right:(pageW-centerX+15),top:(centerY)})								
+						}
+
+						if(navigationTooltipWrap.is(":animated")){
+							navigationTooltipWrap.stop(true,true);
+						}
+						navigationTooltipWrap.fadeIn("200");
+					});
+					navigationWrap.delegate(".nav","mouseout mouseleave",function(event){
+						navigationTooltipWrap.fadeOut("200");
+					})
 				}
+			}
+			//goto函数负责对要进行的页码进行预处理
+			var goto = function(num){
+				if(num<0){
+					if(opt.continuousVertical){
+						moveTo(size-1);
+					}
+					return;
+				}
+				if(num<size ){
+					moveTo(num);
+					return;
+				}
+				if(num==size){
+					if(opt.continuousVertical){
+						moveTo(0);
+					}
+				}					
+			}
+			//moveTo函数负责真正的运动
+			var moveTo = function(num){
+				if(opt.navigation){
+					activeNav(num);
+				}
+				moving = true;
+				//onLeave的执行
+				if(opt.onLeave){
+					opt.onLeave(index)
+				}
+				var moveCallback = function(){
+					moving = false;
+					index = num;
+					//afterLoad的执行
+					if(opt.afterLoad){
+						opt.afterLoad(index);
+					}					
+				}
+				if(!opt.horizontal){
+					selector.animate({top:-num*pageH},opt.speed,opt.method,moveCallback);		
+				}else{
+					selector.animate({left:-num*pageW},opt.speed,opt.method,moveCallback);
+				}				
+			}
+			var mousewheelHandler = function(event){
+				if(moving){return;}
+				direction = event.originalEvent.wheelDelta? -event.originalEvent.wheelDelta : event.originalEvent.detail;
+				goByDirection();
+			}
+			var keyboardHandler = function(event){
+				if(moving){return;}
+				//in_array
+				var which = event.which;
+				if(!in_array(which,[37,38,39,40])){return;}
+				if(in_array(which,[37,38])){
+					direction = -1;
+				}else{
+					direction = 1;
+				}
+				goByDirection();				
+			}
+			var activeNav = function(num){
+				navigationWrap.find(".nav").eq(num).addClass("active").siblings().removeClass("active");
+			}
+			var goByDirection = function(){
+				if(direction>0){
+					goto(index + 1);
+				}else{
+					goto(index - 1);
+				}	
+			}
+			var touchstartHandler = function(event){
+				touchstartY = event.originalEvent.touches[0].clientY;
+			}
+			var touchmoveHandler = function(event){
+				event.preventDefault();
+			}
+			var touchendHandler = function(event){
+				touchendY = event.originalEvent.changedTouches[0].clientY;
+				if(Math.abs(touchstartY-touchendY)<50){return;}
+				if(touchendY < touchstartY ){
+					direction = 1;
+				}else{
+					direction =-1;
+				}
+				 goByDirection();
+			}
+			var initHorizontal = function(){
+				selector.css({width:size*100+"%"});
+				selector.find(".section").addClass("pull-left").css({width:(100/size).toFixed(2)+"%"});
+			}
+			selector.addClass("sectionWrap");
+			if(opt.horizontal){
+				initHorizontal();
+			}
+			if(opt.navigation){
+				setNavbar();
+			}
+			$(document).on("mousewheel DOMMouseScroll",mousewheelHandler);
+			if(opt.keyboard){
+				$(document).on("keyup",keyboardHandler);
+			}
+			if(opt.mobile){
+				$(document).on("touchstart",touchstartHandler);
+				$(document).on("touchmove",touchmoveHandler);
+				$(document).on("touchend",touchendHandler);
+			}
+			var resize;
+			$(window).on("resize",function(){
+				if(resize){clearTimeout(resize);}
+				resize = setTimeout(function(){
+					 pageH = $("body").height();
+					 pageW = $("body").width();
+					 goto(index);
+				},500)
+
 			})
-		}
+
+		})
 	}
 
-	window['Fullpage'] = Fullpage;
 
-})(jQuery);
+})(jQuery)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
