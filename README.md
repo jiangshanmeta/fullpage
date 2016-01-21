@@ -2,7 +2,8 @@ fullpage
 =================================================================
 this is my fullpage plugin based on jQuery for desktop and mobile
 you can use it for creating your personal pages and webApp
-Here is a  [Demo](http://jiangshanmeta.github.io/myWork/org/myFullpage/myFullpage.html)
+Here is a  [Demo](http://jiangshanmeta.github.io/myWork/org/myFullpage/myFullpage.html) on PC
+Here is another [Demo](http://jiangshanmeta.github.io/myWork/org/myFullpage/mobile.html) on mobile
 
 ##Usage
 Fullpage needs to follow a simple.Here is the structure of HTML
